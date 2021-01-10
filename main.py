@@ -114,10 +114,6 @@ ui_block = [
 
 app = AsyncApp()
 
-# @app.event("app_mention")
-# async def event_test(body, say, logger):
-#     logger.info(body)
-#     await say("What's up?")
 
 @app.command("/carmille")
 async def command(ack, body, respond):
@@ -131,18 +127,15 @@ async def command(ack, body, respond):
     
     # Start Times
     st = time.gmtime(initial_start_time)
-    ui_block[2]['accessory']['initial_date'] = f"{st[0]}-{st[1]}-{st[2]}"
-    ui_block[3]['accessory']['initial_time'] = f"{st[3]}:{st[4]}"
-    
-    # #
-    # # End Times
+    ui_block[2]['accessory']['initial_date'] = f"{st[0]:04}-{st[1]:02}-{st[2]:02}"
+    ui_block[3]['accessory']['initial_time'] = f"{st[3]:02}:{st[4]:02}"
+
+    # End Times
     et = time.gmtime(initial_end_time)
-    ui_block[5]['accessory']['initial_date'] = f"{et[0]}-{et[1]}-{et[2]}" # '1990-04-28'
-    ui_block[6]['accessory']['initial_time'] = f"{et[3]}:{et[4]}" # '13:37'
+    ui_block[5]['accessory']['initial_date'] = f"{et[0]:04}-{et[1]:02}-{et[2]:02}" # '1990-04-28'
+    ui_block[6]['accessory']['initial_time'] = f"{et[3]:02}:{et[4]:02}" # '13:37'
     
     await respond(blocks = ui_block)
-    #await respond(f"Hi <@{body['user_id']}>!")
-
 
 # These actions are for when you select start/end times/dates; we need to have
 # an endpoint here for Slack to hit, but we're not gonna do anything.
@@ -187,7 +180,8 @@ async def action_make_archive(body, ack, respond):
     channel_name = body['channel']['name']
     
     await respond(text=f"I've received your request! I'll archive channel *#{channel_name}* from *{time.strftime('%Y-%m-%d %H:%M',start_time)}* to *{time.strftime('%Y-%m-%d %H:%M',end_time)}*, all times local to you. Exciting!")
-    
+    message_archive_url = await get_message_archive(channel_id, channel_name, start_time, end_time)
+    await respond(text=f"This archive is done, and you can pick it up at `{message_archive_url}`. Have a nice day!")
     
 # Given an (opaque) user ID, get their integer timezone offset (UTC + offset = usertime, so it can be negative)
 async def get_tz_offset(user_id):
@@ -207,17 +201,84 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
     
     # Recommended limit value is 200.
     # Set to 5 to ensure pagination works correctly, but that'll make the Slack API hate you.
-    res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=5)
+        
+    res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=200)
+
+    logging.debug("=========================BAR")
     
-    # 
+    messages_group = res['messages']
+    
+    has_more = res['has_more']
+    
+    logging.debug("=========================FOO")
+    
+    if res.get('response_metadata', None) and res['response_metadata'].get('next_cursor', None):
+        new_cursor = res['response_metadata']['next_cursor']
+    logging.debug("=========================BAZ")
+    while has_more:
+        logging.debug("Entering a HAS_MORE")
+        res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=200, cursor=new_cursor)
+        
+        messages_group.extend(res['messages'])
+        
+        has_more = res['has_more']
+    
+        if res.get('response_metadata', None) and res['response_metadata'].get('next_cursor', None):
+            new_cursor = res['response_metadata']['next_cursor']
+    
+    logging.debug("Finished with main messages")
+    # OK! Now we've retrieved all the main-channel messages; however, we need to go get thread replies, because of course Slack makes that hard.
+    
+    # https://api.slack.com/methods/conversations.replies
+    for m in messages_group:
+        logging.debug("On an M")
+        if 'thread_ts' in m:
+            logging.debug("Getting a thread")
+            # This means it's part of a thread. We have to do the whole same song and dance now.
+            ts = m['ts'] # Unique identifier used to identify any message. We only care for start of thread.
+            res = await app.client.conversations_replies(channel=channel_id, ts=ts, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=2)
+    
+            # Deleting the very first one because it'll be a duplicate of the thread topper.
+            tmessages_group = res['messages'][1:]
+    
+            thas_more = res['has_more']
+    
+            if res.get('response_metadata', None) and res['response_metadata'].get('next_cursor', None):
+                tnew_cursor = res['response_metadata']['next_cursor']
+    
+            while thas_more:
+                res = await app.client.conversations_replies(channel=channel_id, ts=ts, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=2, cursor=tnew_cursor)
+        
+                # Deleting the very first one because it'll be a duplicate of the thread topper.
+                tmessages_group.extend(res['messages'][1:])
+        
+                thas_more = res['has_more']
+    
+                if res.get('response_metadata', None) and res['response_metadata'].get('next_cursor', None):
+                    tnew_cursor = res['response_metadata']['next_cursor']
+            
+            # Finally, drop the replies into the message object above.
+            m['replies'] = tmessages_group
+            logging.debug("Finished a thread")
+    
+    
+    logging.debug(f"done! I retrieved {len(messages_group)} messages, including the thread replies.")
+    
+    return await make_archive(channel_name, start_time, end_time, messages_group)
+        
 
 async def make_archive(channel_name, start_time, end_time, messages):
-    print("foo")
+    logging.debug("I have begun the dump process.")
+    filename = f"tmp/{channel_name} {time.strftime('%Y-%m-%d-%H-%M',start_time)} to {time.strftime('%Y-%m-%d-%H-%M',end_time)}.json"
+    with open(filename, "w") as f:
+        json.dump(messages, f)
+    logging.debug("I have finished the dump process.")
+    return filename
 
 @app.error
 async def global_error_handler(error, body, logger):
-    await logger.exception(error)
-    await logger.info(body)
+    logger.exception(error)
+    logger.info(body)
 
 if __name__ == "__main__":
     app.start(8000)
