@@ -225,6 +225,7 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
     
         if res.get('response_metadata', None) and res['response_metadata'].get('next_cursor', None):
             new_cursor = res['response_metadata']['next_cursor']
+    messages_group.sort(key=fetchMessageTimestampForSort)
     
     logging.debug("Finished with main messages")
     # OK! Now we've retrieved all the main-channel messages; however, we need to go get thread replies, because of course Slack makes that hard.
@@ -258,6 +259,7 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
                     tnew_cursor = res['response_metadata']['next_cursor']
             
             # Finally, drop the replies into the message object above.
+            tmessages_group.sort(key=fetchMessageTimestampForSort)
             m['replies'] = tmessages_group
             logging.debug("Finished a thread")
     
@@ -274,6 +276,9 @@ async def make_archive(channel_name, start_time, end_time, messages):
         json.dump(messages, f)
     logging.debug("I have finished the dump process.")
     return filename
+
+def fetchMessageTimestampForSort(m):
+    return float(m['ts'])
 
 @app.error
 async def global_error_handler(error, body, logger):
