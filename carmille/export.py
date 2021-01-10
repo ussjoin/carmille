@@ -52,6 +52,23 @@ HTML_HEADER_STRING="""
         font-weight: 900;
         word-break: break-word;
     }
+    
+    .bold {
+        font-weight: bold;
+    }
+    
+    .italic {
+        font-style: italic;
+    }
+    
+    .strike {
+        text-decoration: line-through;
+    }
+    
+    .code {
+        font-family: monospace;
+    }
+    
 </style>
 </head>
 <body>
@@ -130,7 +147,13 @@ def __render_one_message(message):
     
     # Main body of the message
     
-    ret += f"{message['text']}\n"
+    if message.get('blocks', None):
+        for block in message['blocks']:
+            ret += __render_one_block(block)
+    else:
+        ret += f"{message['text']}\n"
+    
+    # Optional components
     if message.get('replies', None):
         for thread_message in message['replies']:
             ret += __render_one_message(thread_message)
@@ -138,4 +161,60 @@ def __render_one_message(message):
     
     return ret
 
+def __render_one_block(block):
+    """
+    Takes a message block and renders it to a string, which it returns.
+    Private method.
+    """
+    ret = ""
+    block_type = block.get('type', None)
+    if block_type == "rich_text":
+        # A rich_text block will have a series of element section blocks.
+        # Those blocks will be of type rich_text_section or rich_text_preformatted.
+        # I interpret those as calls for a <p> element or a <pre> element.
+        # Hilariously, either way they'll then contain a subarray of elements.
+        # So they get passed on.
+        
+        for rtelement in block['elements']:
+            rt_type = rtelement.get('type', None)
+            if rt_type == "rich_text_section":
+                # Then it'll have a series of small elements.
+                ret += "<p>"
+                for rtselement in rtelement['elements']:
+                    ret += __render_one_rtsec_element(rtselement)
+                ret += "</p>"
+            elif rt_type == "rich_text_preformatted":
+                ret += "<pre>"
+                for rtselement in rtelement['elements']:
+                    ret += __render_one_rtsec_element(rtselement)
+                ret += "</pre>"
+            else:
+                ret += f"ERROR: rich_text block element type {rt_type}: unknown"
+    else:
+        ret += f"ERROR: block element type {block_type}: unknown"
+    return ret
 
+def __render_one_rtsec_element(element):
+    """
+    Takes a message block rich text section element and renders it to a string, which it returns.
+    Private method.
+    """
+    ret = ""
+    element_type = element.get('type', None)
+    if element_type == "text":
+        # This can contain an optional style block that contains a hash with keys that are useful, and values that are true.
+        ret += "<span class='";
+        
+        formats = element.get('style', {})
+        ret += " ".join(formats.keys())
+        ret += "'>"
+        
+        ret += element.get('text', '')
+        ret += "</span>"
+    elif element_type == "link":
+        # TODO: There's likely another kind of linktype block that has a different display name.
+        ret += f"<a href={element.get('url', '')}>{element.get('url', '')}</a>"
+    
+    else:
+        ret += f"I don't understand how to render an element type of {element_type}, halp!"
+    return ret
