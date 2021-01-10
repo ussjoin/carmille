@@ -40,7 +40,28 @@ HTML_HEADER_STRING="""
     .reply {
     }
     
+    .reactji-block {
+        height: 36px;
+    }
+    
     .reactji {
+        height: 36px;
+        max-width: 64px;
+        border: 2px solid #666666;
+        border-radius: 5px;
+    }
+    
+    .reactji-icon {
+        width: 24px;
+        height: 24px;
+    }
+    
+    .reactji-count {
+        font-weight: bold;
+        padding-left: 4px;
+    }
+    
+    .attachment {
     }
     
     .timestamp {
@@ -154,9 +175,13 @@ def __render_one_message(message):
         ret += f"{message['text']}\n"
     
     # Optional components
-    if message.get('replies', None):
-        for thread_message in message['replies']:
-            ret += __render_one_message(thread_message)
+    for thread_message in message.get('replies', []):
+        ret += __render_one_message(thread_message)
+    for attachment in message.get('attachments', []):
+        ret += __render_one_attachment(attachment)
+    if message.get('reactions', None):
+        ret += __render_all_reactions(message.get('reactions', []))
+            
     ret += "</div>\n"
     
     return ret
@@ -212,9 +237,66 @@ def __render_one_rtsec_element(element):
         ret += element.get('text', '')
         ret += "</span>"
     elif element_type == "link":
-        # TODO: There's likely another kind of linktype block that has a different display name.
-        ret += f"<a href={element.get('url', '')}>{element.get('url', '')}</a>"
-    
+        ret += f"<a href={element.get('url', 'ERROR: link element contains no URL')}>{element.get('text', element.get('url', 'ERROR: link element contains no URL or text'))}</a>"
     else:
-        ret += f"I don't understand how to render an element type of {element_type}, halp!"
+        ret += f"ERROR: rich_text_section element type {element_type}: unknown"
+    return ret
+
+def __render_one_attachment(attachment):
+    """
+    Takes a message attachment block and tries to render it to a string, which it returns.
+    Private method.
+    """
+    
+    # {
+    #     "title": "Brendan O'Connor",
+    #     "title_link": "https://ussjoin.com/",
+    #     "text": "This is the CV and resume for Brendan O'Connor. If you'd like to talk about ways we could work together, please contact me: <mailto:bfo@ussjoin.com|bfo@ussjoin.com>.",
+    #     "fallback": "Brendan O'Connor",
+    #     "from_url": "https://ussjoin.com/",
+    #     "service_icon": "https://ussjoin.com/apple-touch-icon.png",
+    #     "service_name": "ussjoin.com",
+    #     "id": 1,
+    #     "original_url": "https://ussjoin.com"
+    # }
+    # {
+    #     "fallback": "<https://twitter.com/JoBurford_|@JoBurford_>: Just spotted <https://twitter.com/MarksLarks|@MarksLarks> on the tele! Media law legend on Secrets of the Royals :clap::clap::clap: <https://pbs.twimg.com/media/ErUbN_lXcAARkoj.jpg>",
+    #     "ts": 1610226461,
+    #     "author_name": "Jo Burford",
+    #     "author_link": "https://twitter.com/JoBurford_/status/1348013599533490177",
+    #     "author_icon": "https://pbs.twimg.com/profile_images/1313011195545358337/lFRiBwde_normal.jpg",
+    #     "author_subname": "@JoBurford_",
+    #     "text": "Just spotted <https://twitter.com/MarksLarks|@MarksLarks> on the tele! Media law legend on Secrets of the Royals :clap::clap::clap: <https://pbs.twimg.com/media/ErUbN_lXcAARkoj.jpg>",
+    #     "service_name": "twitter",
+    #     "service_url": "https://twitter.com/",
+    #     "from_url": "https://twitter.com/JoBurford_/status/1348013599533490177",
+    #     "image_url": "https://pbs.twimg.com/media/ErUbN_lXcAARkoj.jpg",
+    #     "image_width": 900,
+    #     "image_height": 1200,
+    #     "image_bytes": 143292,
+    #     "id": 1,
+    #     "original_url": "https://twitter.com/JoBurford_/status/1348013599533490177",
+    #     "footer": "Twitter",
+    #     "footer_icon": "https://a.slack-edge.com/80588/img/services/twitter_pixel_snapped_32.png"
+    # }
+    
+    
+    ret = "<div class='attachment'>ERROR: attachment rendering unimplemented</div>"
+    
+    return ret
+
+def __render_all_reactions(reactions):
+    """
+    Takes a reaction emoji block and tries to render it to a string, which it returns.
+    Private method.
+    """
+    
+    ret = "<div class='reactji-block'>"
+    for reaction in reactions:
+        ret += "<div class='reactji'>"
+        ret += f"<img class='reactji-icon' src='reactji/{reaction['name']}'/>"
+        ret += f"<span class='reactji-count'>{reaction['count']}</span>"
+        ret += "</div>"
+    ret += "</div>"
+    
     return ret
