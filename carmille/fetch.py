@@ -48,10 +48,13 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
             new_cursor = res['response_metadata']['next_cursor']
     messages_group.sort(key=__message_timestamp_sort)
 
-    # OK! Now we've retrieved all the main-channel messages; however, we need to go get thread replies, because of course Slack makes that hard.
+    # OK! Now we've retrieved all the main-channel messages. Now there are things the Slack API
+    # forces us to retrieve on an inefficient, per-message basis.
 
-    # https://api.slack.com/methods/conversations.replies
     for message in messages_group:
+        
+        # This block looks for and, if necessary, fetches thread replies to a message, adding them to the JSON.
+        # https://api.slack.com/methods/conversations.replies
         if 'thread_ts' in message:
             # This means it's part of a thread. We have to do the whole same song and dance now.
             timestamp = message['ts'] # Unique identifier used to identify any message. We only care for start of thread.
@@ -80,7 +83,12 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
             tmessages_group.sort(key=__message_timestamp_sort)
             message['replies'] = tmessages_group
 
-    logging.debug(f"done! I retrieved {len(messages_group)} messages, including the thread replies.")
+        # This block looks for and fetches emoji reactions (reactji) to a message.
+        # https://api.slack.com/methods/reactions.get
+        # ...actually at the moment it looks like these are being retrieved as part of the normal work.
+        # For now we'll leave this comment here, but not do anything.
+
+    logging.debug(f"done! I retrieved {len(messages_group)} messages, including any thread replies to them.")
 
     return await export.make_archive(channel_name, start_time, end_time, messages_group)
 
