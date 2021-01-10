@@ -204,19 +204,13 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
         
     res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=200)
 
-    logging.debug("=========================BAR")
-    
     messages_group = res['messages']
     
     has_more = res['has_more']
     
-    logging.debug("=========================FOO")
-    
     if res.get('response_metadata', None) and res['response_metadata'].get('next_cursor', None):
         new_cursor = res['response_metadata']['next_cursor']
-    logging.debug("=========================BAZ")
     while has_more:
-        logging.debug("Entering a HAS_MORE")
         res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=200, cursor=new_cursor)
         
         messages_group.extend(res['messages'])
@@ -227,14 +221,11 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
             new_cursor = res['response_metadata']['next_cursor']
     messages_group.sort(key=fetchMessageTimestampForSort)
     
-    logging.debug("Finished with main messages")
     # OK! Now we've retrieved all the main-channel messages; however, we need to go get thread replies, because of course Slack makes that hard.
     
     # https://api.slack.com/methods/conversations.replies
     for m in messages_group:
-        logging.debug("On an M")
         if 'thread_ts' in m:
-            logging.debug("Getting a thread")
             # This means it's part of a thread. We have to do the whole same song and dance now.
             ts = m['ts'] # Unique identifier used to identify any message. We only care for start of thread.
             res = await app.client.conversations_replies(channel=channel_id, ts=ts, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=2)
@@ -261,8 +252,6 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
             # Finally, drop the replies into the message object above.
             tmessages_group.sort(key=fetchMessageTimestampForSort)
             m['replies'] = tmessages_group
-            logging.debug("Finished a thread")
-    
     
     logging.debug(f"done! I retrieved {len(messages_group)} messages, including the thread replies.")
     
