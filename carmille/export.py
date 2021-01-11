@@ -48,10 +48,13 @@ HTML_HEADER_STRING="""
     }
     
     .reactji {
-        height: 36px;
         max-width: 64px;
         border: 2px solid #666666;
         border-radius: 5px;
+    }
+    
+    .reactji-word {
+        font-weight: bold;
     }
     
     .reactji-icon {
@@ -106,7 +109,7 @@ HTML_FOOTER_STRING="""
 </html>
 """
 
-async def make_archive(channel_name, start_time, end_time, messages):
+async def make_archive(channel_name, start_time, end_time, messages, users_dict):
     """
     Construct a JSON archive of Slack messages.
 
@@ -114,16 +117,18 @@ async def make_archive(channel_name, start_time, end_time, messages):
     start_time: the `time.struct_time` representing the beginning of the messages.
     end_time: the `time.struct_time` representing the end of the messages.
     messages: the array of message dicts as formatted by carmille.fetch.
+    users_dict: a nested dict object in the format 
+        userid: {'display_name': display_name, 'icon_url': icon_url} .
     """
 
     logging.debug("I have begun the dump process.")
     filename = f"tmp/{channel_name} {time.strftime('%Y-%m-%d-%H-%M',start_time)} to {time.strftime('%Y-%m-%d-%H-%M',end_time)}.json"
     with open(filename, "w") as file:
-        json.dump(messages, file, indent=4)
+        json.dump({'users': users_dict, 'messages': messages}, file, indent=4)
     logging.debug("I have finished the dump process.")
     return filename
 
-def make_html(channel_name, start_time, end_time, messages):
+def make_html(channel_name, start_time, end_time, messages, users_dict):
     """
     Construct an HTML archive of Slack messages.
 
@@ -131,6 +136,8 @@ def make_html(channel_name, start_time, end_time, messages):
     start_time: the `time.struct_time` representing the beginning of the messages.
     end_time: the `time.struct_time` representing the end of the messages.
     messages: the array of message dicts as formatted by carmille.fetch.
+    users_dict: a nested dict object in the format 
+        userid: {'display_name': display_name, 'icon_url': icon_url}
     """
     
     # TODO Actually use the filename
@@ -140,14 +147,17 @@ def make_html(channel_name, start_time, end_time, messages):
     with open(filename, "w") as file:
         file.write(HTML_HEADER_STRING)
         for message in messages:
-            file.write(__render_one_message(message))
+            file.write(__render_one_message(message, users_dict))
         file.write(HTML_FOOTER_STRING)
     
     
-def __render_one_message(message):
+def __render_one_message(message, users_dict):
     """
     Renders one message to HTML and returns the string.
     Private method.
+    
+    users_dict: a nested dict object in the format 
+        userid: {'display_name': display_name, 'icon_url': icon_url}
     """
     #print(message)
     classes = "message"
@@ -162,7 +172,7 @@ def __render_one_message(message):
     # Message headers
     ret += "<div class='header'>"
     # Username
-    ret += f"<span class='username'>{message['user']}</span>"
+    ret += f"<span class='username'>@{users_dict[message['user']]['display_name']}</span>"
     
     # Timezone math
     # TODO: Use the requesting user's local time
@@ -178,11 +188,14 @@ def __render_one_message(message):
         for block in message['blocks']:
             ret += __render_one_block(block)
     else:
-        ret += f"{message['text']}\n"
+        mod_text = re.sub(r'<@([UW][A-Z0-9]+)>', 
+            lambda x: "<span class='username'>@"+users_dict[x.group(1)]['display_name']+"</span>", 
+            message['text'])
+        ret += f"{mod_text}\n"
     
     # Optional components
     for thread_message in message.get('replies', []):
-        ret += __render_one_message(thread_message)
+        ret += __render_one_message(thread_message, users_dict)
     for attachment in message.get('attachments', []):
         ret += __render_one_attachment(attachment)
     if message.get('reactions', None):
@@ -191,6 +204,7 @@ def __render_one_message(message):
     ret += "</div>\n"
     
     return ret
+
 
 def __render_one_block(block):
     """
@@ -309,7 +323,14 @@ def __render_all_reactions(reactions):
     ret = "<div class='reactji-block'>"
     for reaction in reactions:
         ret += "<div class='reactji'>"
-        ret += f"<img class='reactji-icon' src='reactji/{reaction['name']}'/>"
+        
+        # ret += f"<img class='reactji-icon' src='reactji/{reaction['name']}'/>"
+        # TODO: Due to emoji listing not being supported by Slack bots (see warning
+        # at https://api.slack.com/methods/emoji.list), this renderer lists emoji
+        # names instead.
+        
+        ret += f"<span class='reactji-word'>:{reaction['name']}:</span>"
+        
         ret += f"<span class='reactji-count'>{reaction['count']}</span>"
         ret += "</div>"
     ret += "</div>"
