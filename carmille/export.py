@@ -5,6 +5,8 @@ carmille.export: Takes an array of Slack message dicts and exports them as a fil
 import json
 import logging
 import time
+import re
+import markdown
 
 HTML_HEADER_STRING="""
 <!DOCTYPE html>
@@ -38,6 +40,7 @@ HTML_HEADER_STRING="""
     }
     
     .reply {
+        padding-left: 32px;
     }
     
     .reactji-block {
@@ -62,11 +65,14 @@ HTML_HEADER_STRING="""
     }
     
     .attachment {
+        border-left: 4px solid lightgrey;
+        padding-left: 8px;
     }
     
     .timestamp {
         font-size: 12px;
         color: rgba(var(--sk_foreground_max_solid,97,96,97),1);
+        padding-left: 12px;
     }
     
     .username {
@@ -281,8 +287,17 @@ def __render_one_attachment(attachment):
     # }
     
     
-    ret = "<div class='attachment'>ERROR: attachment rendering unimplemented</div>"
+    ret = "<div class='attachment'>"
     
+    mrkdown = attachment['text']
+    mrkdown = re.sub(r"<([^|]+)\|([^>]+)>", r"[\2](\1)", mrkdown)
+    
+    ret += markdown.markdown(mrkdown)
+    
+    if attachment.get('image_url', None):
+        ret += f"<img src='{attachment.get('image_url', None)}' height=200 />"
+    
+    ret += "</div>"
     return ret
 
 def __render_all_reactions(reactions):
