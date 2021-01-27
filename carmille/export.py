@@ -7,10 +7,12 @@ import logging
 import time
 import re
 import os
-import markdown
 import string
 import shutil
 import random
+import markdown
+import boto3
+from botocore.exceptions import ClientError
 
 HTML_HEADER_STRING="""
 <!DOCTYPE html>
@@ -113,39 +115,83 @@ HTML_FOOTER_STRING="""
 </html>
 """
 
+async def upload_archive(directory, filename):
+    """
+    Push a file to a configured S3 bucket.
+    filename: the local filename (and local path) to the file in question.
+
+    Note: relies on the following environment variables:
+    S3_API_ENDPOINT -- e.g., us-east-1.linodeobjects.com
+    S3_BUCKET -- the name of the bucket
+    S3_ACCESS_KEY -- your S3 access key
+    S3_SECRET_KEY -- your S3 secret key
+    """
+    S3_API_ENDPOINT = os.environ.get('S3_API_ENDPOINT')
+    S3_BUCKET = os.environ.get('S3_BUCKET')
+    S3_ACCESS_KEY = os.environ.get('S3_ACCESS_KEY')
+    S3_SECRET_KEY = os.environ.get('S3_SECRET_KEY')
+
+
+    cfg = {
+        "aws_access_key_id": S3_ACCESS_KEY,
+        "aws_secret_access_key": S3_SECRET_KEY,
+        "endpoint_url": f"https://{S3_API_ENDPOINT}",
+    }
+
+    s3_client = boto3.client('s3', **cfg)
+    try:
+        s3_client.upload_file(f"{directory}/{filename}", S3_BUCKET, filename, ExtraArgs={'ACL': 'public-read'})
+    except ClientError as errormessage:
+        logging.error(errormessage)
+        return False
+    return True
+
+
 async def make_archive(channel_name, start_time, end_time, messages, users_dict):
     """
     Construct a zip file of Slack messages containing a JSON and an HTML representation.
-    
+
     channel_name: the human-readable Slack channel name. Used for file naming.
     start_time: the `time.struct_time` representing the beginning of the messages.
     end_time: the `time.struct_time` representing the end of the messages.
     messages: the array of message dicts as formatted by carmille.fetch.
-    users_dict: a nested dict object in the format 
+    users_dict: a nested dict object in the format
         userid: {'display_name': display_name, 'icon_url': icon_url} .
+
+    Note: relies on the following environment variables:
+    S3_WEBSITE_PREFIX -- the entire string to put before the object name to get a place to download the file. e.g., https://carmille.supercoolhost.net
     """
-    
+
     logging.debug("Entering the archive process.")
-    
+    S3_WEBSITE_PREFIX = os.environ.get('S3_WEBSITE_PREFIX')
+
     letters = string.ascii_lowercase
     randstr = ''.join(random.choice(letters) for i in range(5))
     os.mkdir(f"tmp/{randstr}")
-    
+
     # Has extensions added to it
-    filepart = f"{channel_name} {time.strftime('%Y-%m-%d-%H-%M',start_time)} to {time.strftime('%Y-%m-%d-%H-%M',end_time)}"
-    
+    filepart = f"{channel_name}_{time.strftime('%Y-%m-%d-%H-%M',start_time)}_to_{time.strftime('%Y-%m-%d-%H-%M',end_time)}"
+
     filename = f"tmp/{randstr}/{filepart}"
     zipfilename = f"tmp/{filepart}"
-    
-    await make_json(channel_name, filename, messages, users_dict)
-    await make_html(channel_name, filename, messages, users_dict)
-    zipname = shutil.make_archive(zipfilename, "zip", f"tmp/{randstr}")
+
+    await make_json(filename, messages, users_dict)
+    await make_html(filename, messages, users_dict)
+
+    shutil.make_archive(zipfilename, "zip", f"tmp/{randstr}")
     shutil.rmtree(f"tmp/{randstr}")
     logging.debug("Finished the archive process.")
-    return f"{zipfilename}.zip"
-    
 
-async def make_json(channel_name, filename, messages, users_dict):
+    upload_result = await upload_archive("tmp", f"{filepart}.zip")
+    if upload_result:
+        logging.debug("Finished upload process.")
+        os.remove(f"tmp/{filepart}.zip")
+        return f"{S3_WEBSITE_PREFIX}/{filepart}.zip"
+    else:
+        return "Unfortunately, the archive failed. Look at the logs. Sorry!"
+
+
+async def make_json(filename, messages, users_dict):
     """
     Construct a JSON archive of Slack messages.
 
@@ -153,7 +199,7 @@ async def make_json(channel_name, filename, messages, users_dict):
     start_time: the `time.struct_time` representing the beginning of the messages.
     end_time: the `time.struct_time` representing the end of the messages.
     messages: the array of message dicts as formatted by carmille.fetch.
-    users_dict: a nested dict object in the format 
+    users_dict: a nested dict object in the format
         userid: {'display_name': display_name, 'icon_url': icon_url} .
     """
 
@@ -164,7 +210,7 @@ async def make_json(channel_name, filename, messages, users_dict):
     logging.debug("I have finished the JSON dump process.")
     return filename
 
-async def make_html(channel_name, filename, messages, users_dict):
+async def make_html(filename, messages, users_dict):
     """
     Construct an HTML archive of Slack messages.
 
@@ -172,10 +218,10 @@ async def make_html(channel_name, filename, messages, users_dict):
     start_time: the `time.struct_time` representing the beginning of the messages.
     end_time: the `time.struct_time` representing the end of the messages.
     messages: the array of message dicts as formatted by carmille.fetch.
-    users_dict: a nested dict object in the format 
+    users_dict: a nested dict object in the format
         userid: {'display_name': display_name, 'icon_url': icon_url}
     """
-    
+
     logging.debug("I have begun the HTML dump process.")
     filename = f"{filename}.html"
     with open(filename, "w") as file:
@@ -185,50 +231,49 @@ async def make_html(channel_name, filename, messages, users_dict):
         file.write(HTML_FOOTER_STRING)
     logging.debug("I have finished the HTML dump process.")
     return filename
-    
-    
+
 def __render_one_message(message, users_dict):
     """
     Renders one message to HTML and returns the string.
     Private method.
-    
-    users_dict: a nested dict object in the format 
+
+    users_dict: a nested dict object in the format
         userid: {'display_name': display_name, 'icon_url': icon_url}
     """
     #print(message)
     classes = "message"
-    
+
     if message.get('thread_ts', None) and message.get('thread_ts', None) != message.get('ts', None):
         # Then it's a reply in a thread.
         # (If they're the same, then it's the head of a thread.)
         classes += " reply"
-    
+
     ret = f"<div class='{classes}' id=\"{message['ts']}\">\n"
-    
+
     # Message headers
     ret += "<div class='header'>"
     # Username
     ret += f"<span class='username'>@{users_dict[message['user']]['display_name']}</span>"
-    
+
     # Timezone math
     # TODO: Use the requesting user's local time
     message_time = time.localtime(int(float(message['ts'])))
-    
+
     ret += f"<span class='timestamp'>{time.strftime('%Y-%m-%d %H:%M %z', message_time)}</span>"
-    
+
     ret += "</div>" # End of class='header'
-    
+
     # Main body of the message
-    
+
     if message.get('blocks', None):
         for block in message['blocks']:
             ret += __render_one_block(block)
     else:
-        mod_text = re.sub(r'<@([UW][A-Z0-9]+)>', 
-            lambda x: "<span class='username'>@"+users_dict[x.group(1)]['display_name']+"</span>", 
+        mod_text = re.sub(r'<@([UW][A-Z0-9]+)>',
+            lambda x: "<span class='username'>@"+users_dict[x.group(1)]['display_name']+"</span>",
             message['text'])
         ret += f"{mod_text}\n"
-    
+
     # Optional components
     for thread_message in message.get('replies', []):
         ret += __render_one_message(thread_message, users_dict)
@@ -236,11 +281,10 @@ def __render_one_message(message, users_dict):
         ret += __render_one_attachment(attachment)
     if message.get('reactions', None):
         ret += __render_all_reactions(message.get('reactions', []))
-            
-    ret += "</div>\n"
-    
-    return ret
 
+    ret += "</div>\n"
+
+    return ret
 
 def __render_one_block(block):
     """
@@ -255,7 +299,7 @@ def __render_one_block(block):
         # I interpret those as calls for a <p> element or a <pre> element.
         # Hilariously, either way they'll then contain a subarray of elements.
         # So they get passed on.
-        
+
         for rtelement in block['elements']:
             rt_type = rtelement.get('type', None)
             if rt_type == "rich_text_section":
@@ -284,12 +328,12 @@ def __render_one_rtsec_element(element):
     element_type = element.get('type', None)
     if element_type == "text":
         # This can contain an optional style block that contains a hash with keys that are useful, and values that are true.
-        ret += "<span class='";
-        
+        ret += "<span class='"
+
         formats = element.get('style', {})
         ret += " ".join(formats.keys())
         ret += "'>"
-        
+
         ret += element.get('text', '')
         ret += "</span>"
     elif element_type == "link":
@@ -303,50 +347,17 @@ def __render_one_attachment(attachment):
     Takes a message attachment block and tries to render it to a string, which it returns.
     Private method.
     """
-    
-    # {
-    #     "title": "Brendan O'Connor",
-    #     "title_link": "https://ussjoin.com/",
-    #     "text": "This is the CV and resume for Brendan O'Connor. If you'd like to talk about ways we could work together, please contact me: <mailto:bfo@ussjoin.com|bfo@ussjoin.com>.",
-    #     "fallback": "Brendan O'Connor",
-    #     "from_url": "https://ussjoin.com/",
-    #     "service_icon": "https://ussjoin.com/apple-touch-icon.png",
-    #     "service_name": "ussjoin.com",
-    #     "id": 1,
-    #     "original_url": "https://ussjoin.com"
-    # }
-    # {
-    #     "fallback": "<https://twitter.com/JoBurford_|@JoBurford_>: Just spotted <https://twitter.com/MarksLarks|@MarksLarks> on the tele! Media law legend on Secrets of the Royals :clap::clap::clap: <https://pbs.twimg.com/media/ErUbN_lXcAARkoj.jpg>",
-    #     "ts": 1610226461,
-    #     "author_name": "Jo Burford",
-    #     "author_link": "https://twitter.com/JoBurford_/status/1348013599533490177",
-    #     "author_icon": "https://pbs.twimg.com/profile_images/1313011195545358337/lFRiBwde_normal.jpg",
-    #     "author_subname": "@JoBurford_",
-    #     "text": "Just spotted <https://twitter.com/MarksLarks|@MarksLarks> on the tele! Media law legend on Secrets of the Royals :clap::clap::clap: <https://pbs.twimg.com/media/ErUbN_lXcAARkoj.jpg>",
-    #     "service_name": "twitter",
-    #     "service_url": "https://twitter.com/",
-    #     "from_url": "https://twitter.com/JoBurford_/status/1348013599533490177",
-    #     "image_url": "https://pbs.twimg.com/media/ErUbN_lXcAARkoj.jpg",
-    #     "image_width": 900,
-    #     "image_height": 1200,
-    #     "image_bytes": 143292,
-    #     "id": 1,
-    #     "original_url": "https://twitter.com/JoBurford_/status/1348013599533490177",
-    #     "footer": "Twitter",
-    #     "footer_icon": "https://a.slack-edge.com/80588/img/services/twitter_pixel_snapped_32.png"
-    # }
-    
-    
+
     ret = "<div class='attachment'>"
-    
+
     mrkdown = attachment['text']
     mrkdown = re.sub(r"<([^|]+)\|([^>]+)>", r"[\2](\1)", mrkdown)
-    
+
     ret += markdown.markdown(mrkdown)
-    
+
     if attachment.get('image_url', None):
         ret += f"<img src='{attachment.get('image_url', None)}' height=200 />"
-    
+
     ret += "</div>"
     return ret
 
@@ -355,20 +366,20 @@ def __render_all_reactions(reactions):
     Takes a reaction emoji block and tries to render it to a string, which it returns.
     Private method.
     """
-    
+
     ret = "<div class='reactji-block'>"
     for reaction in reactions:
         ret += "<div class='reactji'>"
-        
+
         # ret += f"<img class='reactji-icon' src='reactji/{reaction['name']}'/>"
         # TODO: Due to emoji listing not being supported by Slack bots (see warning
         # at https://api.slack.com/methods/emoji.list), this renderer lists emoji
         # names instead.
-        
+
         ret += f"<span class='reactji-word'>:{reaction['name']}:</span>"
-        
+
         ret += f"<span class='reactji-count'>{reaction['count']}</span>"
         ret += "</div>"
     ret += "</div>"
-    
+
     return ret
