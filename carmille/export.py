@@ -6,7 +6,11 @@ import json
 import logging
 import time
 import re
+import os
 import markdown
+import string
+import shutil
+import random
 
 HTML_HEADER_STRING="""
 <!DOCTYPE html>
@@ -111,6 +115,38 @@ HTML_FOOTER_STRING="""
 
 async def make_archive(channel_name, start_time, end_time, messages, users_dict):
     """
+    Construct a zip file of Slack messages containing a JSON and an HTML representation.
+    
+    channel_name: the human-readable Slack channel name. Used for file naming.
+    start_time: the `time.struct_time` representing the beginning of the messages.
+    end_time: the `time.struct_time` representing the end of the messages.
+    messages: the array of message dicts as formatted by carmille.fetch.
+    users_dict: a nested dict object in the format 
+        userid: {'display_name': display_name, 'icon_url': icon_url} .
+    """
+    
+    logging.debug("Entering the archive process.")
+    
+    letters = string.ascii_lowercase
+    randstr = ''.join(random.choice(letters) for i in range(5))
+    os.mkdir(f"tmp/{randstr}")
+    
+    # Has extensions added to it
+    filepart = f"{channel_name} {time.strftime('%Y-%m-%d-%H-%M',start_time)} to {time.strftime('%Y-%m-%d-%H-%M',end_time)}"
+    
+    filename = f"tmp/{randstr}/{filepart}"
+    zipfilename = f"tmp/{filepart}"
+    
+    await make_json(channel_name, filename, messages, users_dict)
+    await make_html(channel_name, filename, messages, users_dict)
+    zipname = shutil.make_archive(zipfilename, "zip", f"tmp/{randstr}")
+    shutil.rmtree(f"tmp/{randstr}")
+    logging.debug("Finished the archive process.")
+    return f"{zipfilename}.zip"
+    
+
+async def make_json(channel_name, filename, messages, users_dict):
+    """
     Construct a JSON archive of Slack messages.
 
     channel_name: the human-readable Slack channel name. Used for file naming.
@@ -121,14 +157,14 @@ async def make_archive(channel_name, start_time, end_time, messages, users_dict)
         userid: {'display_name': display_name, 'icon_url': icon_url} .
     """
 
-    logging.debug("I have begun the dump process.")
-    filename = f"tmp/{channel_name} {time.strftime('%Y-%m-%d-%H-%M',start_time)} to {time.strftime('%Y-%m-%d-%H-%M',end_time)}.json"
+    logging.debug("I have begun the JSON dump process.")
+    filename = f"{filename}.json"
     with open(filename, "w") as file:
         json.dump({'users': users_dict, 'messages': messages}, file, indent=4)
-    logging.debug("I have finished the dump process.")
+    logging.debug("I have finished the JSON dump process.")
     return filename
 
-def make_html(channel_name, start_time, end_time, messages, users_dict):
+async def make_html(channel_name, filename, messages, users_dict):
     """
     Construct an HTML archive of Slack messages.
 
@@ -140,15 +176,15 @@ def make_html(channel_name, start_time, end_time, messages, users_dict):
         userid: {'display_name': display_name, 'icon_url': icon_url}
     """
     
-    # TODO Actually use the filename
-    
-    #filename = f"tmp/{channel_name} {time.strftime('%Y-%m-%d-%H-%M',start_time)} to {time.strftime('%Y-%m-%d-%H-%M',end_time)}.html"
-    filename = "tmp/dumb.html"
+    logging.debug("I have begun the HTML dump process.")
+    filename = f"{filename}.html"
     with open(filename, "w") as file:
         file.write(HTML_HEADER_STRING)
         for message in messages:
             file.write(__render_one_message(message, users_dict))
         file.write(HTML_FOOTER_STRING)
+    logging.debug("I have finished the HTML dump process.")
+    return filename
     
     
 def __render_one_message(message, users_dict):

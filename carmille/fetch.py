@@ -30,7 +30,7 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
     # Recommended limit value is 200.
     # Set to 5 to ensure pagination works correctly, but that'll make the Slack API hate you.
 
-    res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=200)
+    res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), inclusive=True, limit=200)
 
     messages_group = res['messages']
 
@@ -38,11 +38,13 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
     
     all_users = []
     all_emoji = []
+    
+    users_dict = {}
 
     if res.get('response_metadata', None) and res['response_metadata'].get('next_cursor', None):
         new_cursor = res['response_metadata']['next_cursor']
     while has_more:
-        res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=200, cursor=new_cursor)
+        res = await app.client.conversations_history(channel=channel_id, oldest=time.mktime(start_time), latest=time.mktime(end_time), inclusive=True, limit=200, cursor=new_cursor)
 
         messages_group.extend(res['messages'])
 
@@ -65,7 +67,7 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
         if 'thread_ts' in message:
             # This means it's part of a thread. We have to do the whole same song and dance now.
             timestamp = message['ts'] # Unique identifier used to identify any message. We only care for start of thread.
-            res = await app.client.conversations_replies(channel=channel_id, ts=timestamp, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=2)
+            res = await app.client.conversations_replies(channel=channel_id, ts=timestamp, oldest=time.mktime(start_time), latest=time.mktime(end_time), inclusive=True, limit=200)
 
             # Deleting the very first one because it'll be a duplicate of the thread topper.
             tmessages_group = res['messages'][1:]
@@ -76,7 +78,7 @@ async def get_message_archive(channel_id, channel_name, start_time, end_time):
                 tnew_cursor = res['response_metadata']['next_cursor']
 
             while thas_more:
-                res = await app.client.conversations_replies(channel=channel_id, ts=timestamp, oldest=time.mktime(start_time), latest=time.mktime(end_time), limit=2, cursor=tnew_cursor)
+                res = await app.client.conversations_replies(channel=channel_id, ts=timestamp, oldest=time.mktime(start_time), latest=time.mktime(end_time), inclusive=True, limit=200, cursor=tnew_cursor)
 
                 # Deleting the very first one because it'll be a duplicate of the thread topper.
                 tmessages_group.extend(res['messages'][1:])
