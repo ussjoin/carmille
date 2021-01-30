@@ -1,5 +1,5 @@
 # This line links GHCR.io with the repository.
-LABEL org.opencontainers.image.source https://github.com/ussjoin/carmille
+LABEL org.opencontainers.image.source=https://github.com/ussjoin/carmille
 
 FROM alpine:latest
 
