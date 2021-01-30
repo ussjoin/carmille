@@ -4,10 +4,9 @@ RUN apk update
 
 RUN apk upgrade
 
-RUN apk add --no-cache supervisor py3-pip python3-dev gcc musl-dev git
+RUN apk add --no-cache supervisor py3-pip python3-dev gcc musl-dev
 
-WORKDIR /root
-RUN mkdir src
+RUN mkdir -p /root/src/tmp
 
 WORKDIR /root/src
 COPY . /root/src/
