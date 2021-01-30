@@ -6,7 +6,7 @@ import logging
 from slack_bolt.async_app import AsyncApp
 import carmille
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 app = AsyncApp()
 
