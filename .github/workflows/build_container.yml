@@ -28,10 +28,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: ussjoin/carmille:latest
-          registry: ghcr.io
-          #repository: ussjoin/ussjoin/carmille
-          tag_with_ref: true
+          tags: ghcr.io/ussjoin/carmille:latest
       -
         name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
