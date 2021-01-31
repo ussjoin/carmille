@@ -29,6 +29,7 @@ There are four actual secrets, and three configuration values, that the app need
 ### Run Using Docker
 
 ```
+mkdir -p oauthdata
 docker run -d --rm \
     -e S3_API_ENDPOINT=us-east-1.linodeobjects.com \
     -e S3_BUCKET=carmilleForYou \
@@ -38,6 +39,7 @@ docker run -d --rm \
     -e SLACK_CLIENT_ID=nothing-to-see-here \
     -e SLACK_CLIENT_SECRET=nothing-to-see-here \
     -e SLACK_SIGNING_SECRET=s3kr1t \
+    -v $(pwd)/oauthdata:/root/src/data \
     -p 8000:8000 \
     ghcr.io/ussjoin/carmille:latest
 ```
@@ -49,6 +51,8 @@ The docker image is automatically built on every push to the main branch, and st
 ### Run Without Docker
 
 ```
+mkdir -p tmp # Used for archive prep
+mkdir -p data # Used for persistent OAuth data store
 export S3_API_ENDPOINT=us-east-1.linodeobjects.com
 export S3_BUCKET=carmilleForYou
 export S3_ACCESS_KEY=AccessKey
