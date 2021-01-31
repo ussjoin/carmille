@@ -90,7 +90,7 @@ async def action_make_archive(context, body, ack, respond):
     channel_name = body['channel']['name']
 
     await respond(text=f"I've received your request! I'll archive channel *#{channel_name}* from *{time.strftime('%Y-%m-%d %H:%M',start_time)}* to *{time.strftime('%Y-%m-%d %H:%M',end_time)}*, all times local to you. Exciting!")
-    message_archive_url = await carmille.fetch.get_message_archive(context.client, channel_id, channel_name, start_time, end_time)
+    message_archive_url = await carmille.fetch.get_message_archive(context.client, channel_id, channel_name, start_time, end_time, user_tz_offset)
     await respond(text=f"This archive is done, and you can pick it up at `{message_archive_url}`. Have a nice day!")
 
 @app.error

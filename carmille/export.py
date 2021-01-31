@@ -4,6 +4,7 @@ carmille.export: Takes an array of Slack message dicts and exports them as a fil
 
 import json
 import logging
+import datetime
 import time
 import re
 import os
@@ -13,6 +14,9 @@ import random
 import markdown
 import boto3
 from botocore.exceptions import ClientError
+from dateutil import tz
+
+utctzobject = tz.tzutc()
 
 HTML_HEADER_STRING="""
 <!DOCTYPE html>
@@ -147,7 +151,7 @@ async def upload_archive(directory, filename):
     return True
 
 
-async def make_archive(channel_name, start_time, end_time, messages, users_dict):
+async def make_archive(channel_name, start_time, end_time, messages, users_dict, tz_offset):
     """
     Construct a zip file of Slack messages containing a JSON and an HTML representation.
 
@@ -157,6 +161,7 @@ async def make_archive(channel_name, start_time, end_time, messages, users_dict)
     messages: the array of message dicts as formatted by carmille.fetch.
     users_dict: a nested dict object in the format
         userid: {'display_name': display_name, 'icon_url': icon_url} .
+    tz_offset: the requesting user's local time offset from UTC, in integer seconds.
 
     Note: relies on the following environment variables:
     S3_WEBSITE_PREFIX -- the entire string to put before the object name to get a place to download the file. e.g., https://carmille.supercoolhost.net
@@ -169,14 +174,20 @@ async def make_archive(channel_name, start_time, end_time, messages, users_dict)
     randstr = ''.join(random.choice(letters) for i in range(5))
     os.mkdir(f"tmp/{randstr}")
 
+    user_tz = tz.tzoffset(None, tz_offset)
+        
+    start_datetime = datetime.datetime.fromtimestamp(time.mktime(start_time)).astimezone(user_tz)
+    end_datetime = datetime.datetime.fromtimestamp(time.mktime(end_time)).astimezone(user_tz)
+    
     # Has extensions added to it
-    filepart = f"{channel_name}_{time.strftime('%Y-%m-%d-%H-%M',start_time)}_to_{time.strftime('%Y-%m-%d-%H-%M',end_time)}"
+    filepart = f"{channel_name}_{start_datetime.strftime('%Y-%m-%d-%H-%M')}_to_{end_datetime.strftime('%Y-%m-%d-%H-%M')}"
 
     filename = f"tmp/{randstr}/{filepart}"
     zipfilename = f"tmp/{filepart}"
 
     await make_json(filename, messages, users_dict)
-    await make_html(filename, messages, users_dict)
+    # Only make_html needs user_tz, because it's the one that tries to do "human_readable" stuff.
+    await make_html(filename, messages, users_dict, user_tz)
 
     shutil.make_archive(zipfilename, "zip", f"tmp/{randstr}")
     shutil.rmtree(f"tmp/{randstr}")
@@ -210,7 +221,7 @@ async def make_json(filename, messages, users_dict):
     logging.debug("I have finished the JSON dump process.")
     return filename
 
-async def make_html(filename, messages, users_dict):
+async def make_html(filename, messages, users_dict, user_tz):
     """
     Construct an HTML archive of Slack messages.
 
@@ -220,6 +231,7 @@ async def make_html(filename, messages, users_dict):
     messages: the array of message dicts as formatted by carmille.fetch.
     users_dict: a nested dict object in the format
         userid: {'display_name': display_name, 'icon_url': icon_url}
+    user_tz: a tzinfo object with the requesting user's timezone set.
     """
 
     logging.debug("I have begun the HTML dump process.")
@@ -227,18 +239,19 @@ async def make_html(filename, messages, users_dict):
     with open(filename, "w") as file:
         file.write(HTML_HEADER_STRING)
         for message in messages:
-            file.write(__render_one_message(message, users_dict))
+            file.write(__render_one_message(message, users_dict, user_tz))
         file.write(HTML_FOOTER_STRING)
     logging.debug("I have finished the HTML dump process.")
     return filename
 
-def __render_one_message(message, users_dict):
+def __render_one_message(message, users_dict, user_tz):
     """
     Renders one message to HTML and returns the string.
     Private method.
 
     users_dict: a nested dict object in the format
         userid: {'display_name': display_name, 'icon_url': icon_url}
+    user_tz: a tzinfo object with the requesting user's timezone set.
     """
     #print(message)
     classes = "message"
@@ -256,10 +269,15 @@ def __render_one_message(message, users_dict):
     ret += f"<span class='username'>@{users_dict[message['user']]['display_name']}</span>"
 
     # Timezone math
-    # TODO: Use the requesting user's local time
-    message_time = time.localtime(int(float(message['ts'])))
+    # This line takes an epoch timestamp that's passed as a string float.
+    # It converts it to a float, then to an integer, to drop the sub-second bit.
+    # It then parses it into a UTC datetime object.
+    # Finally, it excretes it into the user's timezone.    
+    # utctzobject is made once, at the top of this file, to avoid having to
+    # construct it on every single message.
+    message_time = datetime.datetime.fromtimestamp(int(float(message['ts'])),utctzobject).astimezone(user_tz)
 
-    ret += f"<span class='timestamp'>{time.strftime('%Y-%m-%d %H:%M %z', message_time)}</span>"
+    ret += f"<span class='timestamp'>{message_time.strftime('%Y-%m-%d %H:%M %z')}</span>"
 
     ret += "</div>" # End of class='header'
 
@@ -276,7 +294,7 @@ def __render_one_message(message, users_dict):
 
     # Optional components
     for thread_message in message.get('replies', []):
-        ret += __render_one_message(thread_message, users_dict)
+        ret += __render_one_message(thread_message, users_dict, user_tz)
     for attachment in message.get('attachments', []):
         ret += __render_one_attachment(attachment)
     if message.get('reactions', None):

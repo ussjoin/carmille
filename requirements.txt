@@ -2,3 +2,4 @@ slack_bolt
 markdown
 boto3
 aiohttp
+python-dateutil

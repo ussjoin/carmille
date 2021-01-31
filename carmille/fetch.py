@@ -8,7 +8,7 @@ import re
 
 from . import export # Go get the export.py file so we can use it
 
-async def get_message_archive(client, channel_id, channel_name, start_time, end_time):
+async def get_message_archive(client, channel_id, channel_name, start_time, end_time, tz_offset):
     """
     Fetch, construct, and return a JSON archive of Slack messages.
 
@@ -17,6 +17,7 @@ async def get_message_archive(client, channel_id, channel_name, start_time, end_
     channel_name: the human-readable Slack channel name. Used for file naming.
     start_time: the `time.struct_time` representing the beginning of the messages.
     end_time: the `time.struct_time` representing the end of the messages.
+    tz_offset: the requesting user's local time offset from UTC, in integer seconds.
     """
     # https://api.slack.com/methods/conversations.history
 
@@ -106,7 +107,7 @@ async def get_message_archive(client, channel_id, channel_name, start_time, end_
 
     logging.debug(f"done! I retrieved {len(messages_group)} messages, including any thread replies to them.")
 
-    return await export.make_archive(channel_name, start_time, end_time, messages_group, users_dict)
+    return await export.make_archive(channel_name, start_time, end_time, messages_group, users_dict, tz_offset)
 
 def get_emoji_in_message(message):
     """
