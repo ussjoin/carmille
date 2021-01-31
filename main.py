@@ -4,17 +4,32 @@ import sys
 import logging
 # Import the async app instead of the regular one
 from slack_bolt.async_app import AsyncApp
+from slack_bolt.oauth.async_oauth_settings import AsyncOAuthSettings
+from slack_sdk.oauth.installation_store import FileInstallationStore
+from slack_sdk.oauth.state_store import FileOAuthStateStore
 import carmille
 
 logging.basicConfig(level=logging.INFO)
 
-app = AsyncApp()
+oauth_settings = AsyncOAuthSettings(
+    client_id=os.environ["SLACK_CLIENT_ID"],
+    client_secret=os.environ["SLACK_CLIENT_SECRET"],
+    scopes=["channels:history", "channels:read", "commands", "emoji:read", "reactions:read", "users:read"],
+    installation_store=FileInstallationStore(base_dir="./data"),
+    state_store=FileOAuthStateStore(expiration_seconds=600, base_dir="./data")
+)
+
+app = AsyncApp(
+    signing_secret=os.environ["SLACK_SIGNING_SECRET"],
+    oauth_settings=oauth_settings
+)
+
 
 @app.command("/carmille")
-async def command(ack, body, respond):
+async def command(context, ack, body, respond):
     await ack()
 
-    user_tz_offset = await carmille.fetch.get_tz_offset(body['user_id'])
+    user_tz_offset = await carmille.fetch.get_tz_offset(context.client, body['user_id'])
 
     initial_end_time = time.time() + user_tz_offset # Unix seconds
     initial_start_time = initial_end_time - 3600 # An hour earlier
@@ -46,11 +61,11 @@ async def action_do_nothing(body, ack, respond):
 
 # This endpoint gets hit when you click the "Archive" button.
 @app.action("make_archive")
-async def action_make_archive(body, ack, respond):
+async def action_make_archive(context, body, ack, respond):
     # Acknowledge the action
     await ack()
 
-    user_tz_offset = await carmille.fetch.get_tz_offset(body['user']['id'])
+    user_tz_offset = await carmille.fetch.get_tz_offset(context.client, body['user']['id'])
     tz_off_min = user_tz_offset / 60 # Truncating division but that's fine, this is seconds
     tz_off_h = int(tz_off_min / 60) # Truncating again to get two-digit hour
     tz_off_m = int(tz_off_min % 60) # Getting two-digit minutes
@@ -75,7 +90,7 @@ async def action_make_archive(body, ack, respond):
     channel_name = body['channel']['name']
 
     await respond(text=f"I've received your request! I'll archive channel *#{channel_name}* from *{time.strftime('%Y-%m-%d %H:%M',start_time)}* to *{time.strftime('%Y-%m-%d %H:%M',end_time)}*, all times local to you. Exciting!")
-    message_archive_url = await carmille.fetch.get_message_archive(channel_id, channel_name, start_time, end_time)
+    message_archive_url = await carmille.fetch.get_message_archive(context.client, channel_id, channel_name, start_time, end_time)
     await respond(text=f"This archive is done, and you can pick it up at `{message_archive_url}`. Have a nice day!")
 
 @app.error
@@ -85,12 +100,12 @@ async def global_error_handler(error, body, logger):
 
 if __name__ == "__main__":
     # Check that the S3 variables are set.
-    # On app startup, the library will check for SLACK_BOT_TOKEN itself.
+    # On app startup, the library will check for SLACK_CLIENT_ID and SLACK_CLIENT_SECRET itself.
     S3_API_ENDPOINT = os.environ.get('S3_API_ENDPOINT')
     S3_BUCKET = os.environ.get('S3_BUCKET')
     S3_ACCESS_KEY = os.environ.get('S3_ACCESS_KEY')
     S3_SECRET_KEY = os.environ.get('S3_SECRET_KEY')
     S3_WEBSITE_PREFIX = os.environ.get('S3_WEBSITE_PREFIX')
     if not (S3_API_ENDPOINT and S3_BUCKET and S3_ACCESS_KEY and S3_SECRET_KEY and S3_WEBSITE_PREFIX):
-        sys.exit("You must set S3_API_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_WEBSITE_PREFIX, and SLACK_BOT_TOKEN in the environment to start this.")
+        sys.exit("You must set S3_API_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_WEBSITE_PREFIX, SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, and SLACK_SIGNING_SECRET in the environment to start this.")
     app.start(8000)
