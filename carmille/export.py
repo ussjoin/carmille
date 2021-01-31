@@ -175,10 +175,10 @@ async def make_archive(channel_name, start_time, end_time, messages, users_dict,
     os.mkdir(f"tmp/{randstr}")
 
     user_tz = tz.tzoffset(None, tz_offset)
-        
+
     start_datetime = datetime.datetime.fromtimestamp(time.mktime(start_time)).astimezone(user_tz)
     end_datetime = datetime.datetime.fromtimestamp(time.mktime(end_time)).astimezone(user_tz)
-    
+
     # Has extensions added to it
     filepart = f"{channel_name}_{start_datetime.strftime('%Y-%m-%d-%H-%M')}_to_{end_datetime.strftime('%Y-%m-%d-%H-%M')}"
 
@@ -272,7 +272,7 @@ def __render_one_message(message, users_dict, user_tz):
     # This line takes an epoch timestamp that's passed as a string float.
     # It converts it to a float, then to an integer, to drop the sub-second bit.
     # It then parses it into a UTC datetime object.
-    # Finally, it excretes it into the user's timezone.    
+    # Finally, it excretes it into the user's timezone.
     # utctzobject is made once, at the top of this file, to avoid having to
     # construct it on every single message.
     message_time = datetime.datetime.fromtimestamp(int(float(message['ts'])),utctzobject).astimezone(user_tz)
