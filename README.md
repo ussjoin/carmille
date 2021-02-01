@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A Slack application that lets you request a time-bound archive of a particular public channel. To use, invite the bot user into a public channel, then type `/carmille` to begin the 
+A Slack application that lets you request a time-bound archive of a particular public channel. To use, invite the bot user into a public channel, then type `/carmille` to begin the process.
 
 ## Name
 
@@ -16,7 +16,7 @@ You're going to need an S3-compatible storage environment to store the archives.
 
 #### Removing Old Archives
 
-The script at <cron/remove-old.sh> looks for an `s3cmd` install and config file (you can specify the path), and uses a bucket name of `carmille` by default; it searches for files older than 1 hour and deletes them. I run it hourly, via cron. You can (and should) use a separate access key and secret from the one you're providing to the container for normal use.
+The script at [cron/remove-old.sh](cron/remove-old.sh) looks for an `s3cmd` install and config file (you can specify the path), and uses a bucket name of `carmille` by default; it searches for files older than 1 hour and deletes them. I run it hourly, via cron. You can (and should) use a separate access key and secret from the one you're providing to the container for normal use.
 
 ### How to Set Up At Slack
 
